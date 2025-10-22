@@ -5,10 +5,10 @@ import spacy
 from .models import ChatMessage
 from .serializers import ChatMessageSerializer
 
-# Load SpaCy model (with word vectors)
+# ✅ Load SpaCy model with word vectors (ensure installed in Dockerfile)
 nlp = spacy.load("en_core_web_md")
 
-# Define 20+ space-related Q&A pairs
+# ✅ Precompute question embeddings once at startup
 SPACE_QA = {
     "what is the milky way": "The Milky Way is the galaxy that contains our Solar System.",
     "what is a black hole": "A black hole is a region in space where gravity is so strong that not even light can escape.",
@@ -32,28 +32,41 @@ SPACE_QA = {
     "who was the first person in space": "Yuri Gagarin was the first human to travel into space in 1961."
 }
 
+# ✅ Precompute all vector docs once to speed up each request
+QA_VECTORS = {q: nlp(q) for q in SPACE_QA.keys()}
+
 
 class ChatBotAPIView(APIView):
     def post(self, request):
-        user_message = request.data.get('message', '').lower()
-        user_doc = nlp(user_message)
+        user_message = request.data.get("message", "").strip().lower()
 
-        best_score = 0
+        # Handle empty message
+        if not user_message:
+            return Response(
+                {"error": "Please provide a message."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user_doc = nlp(user_message)
+        best_score = 0.0
         best_answer = "I'm not sure about that. Try asking something about space!"
 
-        # Compare user input with each question semantically
-        for question, answer in SPACE_QA.items():
-            question_doc = nlp(question)
+        # ✅ Compare user message with precomputed vectors
+        for question, question_doc in QA_VECTORS.items():
             similarity = user_doc.similarity(question_doc)
             if similarity > best_score:
                 best_score = similarity
-                best_answer = answer
+                best_answer = SPACE_QA[question]
 
-        # Optional threshold: only reply if confidence is high enough
+        # ✅ Confidence threshold to avoid random matches
         if best_score < 0.65:
             best_answer = "I'm not sure about that. Ask me something else about space!"
 
-        # Save to database
-        chat = ChatMessage.objects.create(user_message=user_message, bot_reply=best_answer)
+        # ✅ Save the conversation
+        chat = ChatMessage.objects.create(
+            user_message=user_message,
+            bot_reply=best_answer,
+        )
+
         serializer = ChatMessageSerializer(chat)
         return Response(serializer.data, status=status.HTTP_200_OK)
