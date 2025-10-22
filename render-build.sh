@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-# Install SpaCy model on Render
+set -e
 python -m spacy download en_core_web_md
+python -m spacy validate
